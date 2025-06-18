@@ -200,12 +200,6 @@ Este proyecto está bajo la Licencia MIT - ver el archivo [LICENSE](LICENSE) par
 ✅ **Listo para producción**  
 ✅ **Documentación completa**  
 
-## 📞 Soporte
-
-- 📧 Email: [tu-email@ejemplo.com]
-- 🐛 Issues: [GitHub Issues]
-- 📖 Docs: Ver archivos de documentación incluidos
-
 ---
 
 **⚠️ Nota**: Este proyecto está configurado para ambiente de **INTEGRACIÓN (testing)** de Transbank. Para producción, obtén credenciales reales de Transbank.
