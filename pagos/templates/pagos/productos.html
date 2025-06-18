@@ -1,0 +1,65 @@
+{% extends 'base.html' %}
+
+{% block title %}Productos - Tienda Webpay{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <h1 class="mb-4">
+            <i class="bi bi-grid"></i> Nuestros Productos
+        </h1>
+    </div>
+</div>
+
+{% if productos %}
+    <div class="row">
+        {% for producto in productos %}
+            <div class="col-md-4 mb-4">
+                <div class="card h-100">
+                    <div class="card-body">
+                        <h5 class="card-title">{{ producto.nombre }}</h5>
+                        <p class="card-text">{{ producto.descripcion }}</p>
+                        <p class="card-text">
+                            <strong class="text-success">
+                                ${{ producto.precio|floatformat:0 }}
+                            </strong>
+                        </p>
+                        <p class="card-text">
+                            <small class="text-muted">
+                                Stock: {{ producto.stock }} unidades
+                            </small>
+                        </p>
+                    </div>
+                    <div class="card-footer">
+                        {% if producto.stock > 0 %}
+                            <form method="post" action="{% url 'pagos:agregar_carrito' producto.id %}">
+                                {% csrf_token %}
+                                <div class="input-group mb-2">
+                                    <input type="number" 
+                                           name="cantidad" 
+                                           value="1" 
+                                           min="1" 
+                                           max="{{ producto.stock }}" 
+                                           class="form-control">
+                                    <button type="submit" class="btn btn-primary">
+                                        <i class="bi bi-cart-plus"></i> Agregar
+                                    </button>
+                                </div>
+                            </form>
+                        {% else %}
+                            <p class="text-danger">Sin stock</p>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        {% endfor %}
+    </div>
+{% else %}
+    <div class="text-center">
+        <div class="alert alert-info">
+            <h4>No hay productos disponibles</h4>
+            <p>Agrega algunos productos desde el panel de administración.</p>
+        </div>
+    </div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,358 @@
+{% extends 'pagos/base.html' %}
+
+{% block title %}Transacciones Exitosas{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-12">
+            <h2 class="mb-4">📊 Transacciones Exitosas</h2>                <!-- Estadísticas generales -->
+            <div class="row mb-4">                <div class="col-md-3">
+                    <div class="card bg-success text-white">
+                        <div class="card-body text-center">
+                            <h5 class="card-title text-white">Total Transacciones</h5>
+                            <h3 class="text-white">{{ total_transacciones }}</h3>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card bg-info text-white">
+                        <div class="card-body text-center">
+                            <h5 class="card-title text-white">Monto Total</h5>
+                            <h3 class="text-white">${{ monto_total|floatformat:0 }}</h3>
+                        </div>
+                    </div>
+                </div><div class="col-md-3">
+                    <div class="card bg-warning text-dark">
+                        <div class="card-body text-center">
+                            <h5 class="card-title text-dark">Promedio por Transacción</h5>
+                            <h3 class="text-dark">${{ monto_promedio|floatformat:0 }}</h3>
+                        </div>
+                    </div>
+                </div>                <div class="col-md-3">
+                    <div class="card bg-primary text-white">
+                        <div class="card-body text-center">
+                            <h5 class="card-title text-white">API JSON</h5>
+                            <a href="{% url 'pagos:transacciones_exitosas_json' %}" class="btn btn-light btn-sm" target="_blank">
+                                Ver JSON
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tabla de transacciones -->
+            {% if transacciones %}
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">Detalle de Transacciones</h5>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-striped">                            <thead>
+                                <tr>
+                                    <th>Orden</th>
+                                    <th>Fecha</th>
+                                    <th>Monto</th>
+                                    <th>Productos</th>
+                                    <th>Código Autorización</th>
+                                    <th>Token (Vista Previa)</th>
+                                    <th>Tipo Pago</th>
+                                    <th>VCI</th>
+                                    <th>Estado</th>
+                                    <th>Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for transaccion in transacciones %}
+                                <tr>
+                                    <td>
+                                        <strong>{{ transaccion.orden_compra }}</strong>
+                                    </td>
+                                    <td>
+                                        {{ transaccion.fecha_creacion|date:"d/m/Y H:i" }}
+                                    </td>                                    <td>
+                                        <span class="badge bg-success text-white">
+                                            ${{ transaccion.monto|floatformat:0 }}
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <span class="badge bg-primary text-white">
+                                            {{ transaccion.get_total_productos }} items
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <code>{{ transaccion.authorization_code|default:"-" }}</code>
+                                    </td>
+                                    <td>
+                                        <code class="token-preview" title="Haz clic en 'Ver Detalle' para ver el token completo">
+                                            {{ transaccion.token|truncatechars:12 }}...
+                                        </code>
+                                    </td>
+                                    <td>
+                                        {{ transaccion.payment_type_code|default:"-" }}
+                                    </td>                                    <td>
+                                        <span class="badge bg-info text-white">
+                                            {{ transaccion.vci|default:"-" }}
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <span class="badge bg-success text-white">
+                                            {{ transaccion.estado }}
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <button class="btn btn-sm btn-outline-primary" onclick="verDetalle('{{ transaccion.id }}')">
+                                            Ver Detalle
+                                        </button>
+                                    </td>
+                                </tr>                                <!-- Fila oculta con detalles -->
+                                <tr id="detalle-{{ transaccion.id }}" style="display: none;" class="table-secondary">
+                                    <td colspan="10"><div class="row">
+                                            <div class="col-md-4">
+                                                <strong>📋 Detalles de la Transacción:</strong>
+                                                <ul class="list-unstyled mt-2">
+                                                    <li><strong>Session ID:</strong> {{ transaccion.session_id }}</li>
+                                                    <li><strong>Token:</strong> <code class="token-completo">{{ transaccion.token }}</code></li>
+                                                    <li><strong>Fecha Transacción:</strong> {{ transaccion.transaction_date|date:"d/m/Y H:i:s"|default:"-" }}</li>                                                    <li><strong>Fecha Contable:</strong> 
+                                                        <span title="Formato original: {{ transaccion.accounting_date }}">
+                                                            {{ transaccion.fecha_contable_legible }}
+                                                        </span>
+                                                    </li>
+                                                </ul>
+                                            </div>
+                                            <div class="col-md-4">
+                                                <strong>💳 Detalles Webpay:</strong>
+                                                <ul class="list-unstyled mt-2">
+                                                    <li><strong>Código Respuesta:</strong> {{ transaccion.response_code }}</li>
+                                                    <li><strong>Número de Cuotas:</strong> {{ transaccion.installments_number|default:"-" }}</li>
+                                                    <li><strong>Última Actualización:</strong> {{ transaccion.fecha_actualizacion|date:"d/m/Y H:i:s" }}</li>
+                                                </ul>
+                                            </div>
+                                            <div class="col-md-4">
+                                                <strong>🛒 Productos Comprados:</strong>
+                                                <div class="mt-2">
+                                                    {% if transaccion.get_detalle_carrito %}
+                                                        <div class="carrito-productos">
+                                                            {% for producto in transaccion.get_detalle_carrito %}
+                                                            <div class="producto-item border-bottom py-2">
+                                                                <div class="d-flex justify-content-between align-items-center">
+                                                                    <div>
+                                                                        <strong>{{ producto.producto_nombre }}</strong>
+                                                                        <br>
+                                                                        <small class="text-muted">
+                                                                            Cantidad: {{ producto.cantidad }} | 
+                                                                            Precio unitario: ${{ producto.producto_precio|floatformat:0 }}
+                                                                        </small>
+                                                                    </div>                                                                    <div class="text-end">
+                                                                        <span class="badge bg-success text-white">
+                                                                            ${{ producto.subtotal|floatformat:0 }}
+                                                                        </span>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                            {% endfor %}
+                                                            <div class="mt-2 pt-2 border-top">
+                                                                <strong>Total: {{ transaccion.get_total_productos }} productos - ${{ transaccion.monto|floatformat:0 }}</strong>
+                                                            </div>
+                                                        </div>
+                                                    {% else %}
+                                                        <small class="text-muted">No hay información del carrito disponible</small>
+                                                    {% endif %}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            {% else %}
+            <div class="alert alert-info text-center">
+                <h4>📋 No hay transacciones exitosas</h4>
+                <p>Aún no se han registrado transacciones exitosas en el sistema.</p>
+            </div>
+            {% endif %}
+
+            <!-- Botones de acción -->
+            <div class="mt-4 text-center">
+                <a href="{% url 'pagos:productos' %}" class="btn btn-primary">
+                    🛍️ Ir a Productos
+                </a>
+                <a href="{% url 'pagos:consultar_transaccion' %}" class="btn btn-secondary">
+                    🔍 Consultar Transacción
+                </a>
+                <a href="{% url 'pagos:transacciones_exitosas_json' %}" class="btn btn-info" target="_blank">
+                    📊 Ver JSON Completo
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function verDetalle(transaccionId) {
+    const detalleRow = document.getElementById('detalle-' + transaccionId);
+    if (detalleRow.style.display === 'none' || detalleRow.style.display === '') {
+        detalleRow.style.display = 'table-row';
+    } else {
+        detalleRow.style.display = 'none';
+    }
+}
+
+// Función para copiar JSON al portapapeles
+function copiarJSON() {
+    fetch('{% url "pagos:transacciones_exitosas_json" %}')
+        .then(response => response.text())
+        .then(data => {
+            navigator.clipboard.writeText(data).then(() => {
+                alert('JSON copiado al portapapeles');
+            });
+        })
+        .catch(err => {
+            console.error('Error al copiar JSON:', err);
+        });
+}
+
+// Función para copiar token al hacer clic
+document.addEventListener('DOMContentLoaded', function() {
+    const tokens = document.querySelectorAll('.token-completo');
+    tokens.forEach(function(token) {
+        token.addEventListener('click', function() {
+            const texto = this.textContent;
+            navigator.clipboard.writeText(texto).then(function() {
+                // Mostrar mensaje temporal
+                const originalBg = token.style.backgroundColor;
+                token.style.backgroundColor = '#d4edda';
+                token.title = '¡Token copiado!';
+                
+                setTimeout(function() {
+                    token.style.backgroundColor = originalBg;
+                    token.title = 'Haz clic para copiar';
+                }, 1000);
+            }).catch(function(err) {
+                console.error('Error al copiar token:', err);
+                alert('Error al copiar el token');
+            });
+        });
+        
+        // Agregar título informativo
+        token.title = 'Haz clic para copiar';
+    });
+});
+</script>
+
+<style>
+.badge {
+    font-size: 0.8em;
+}
+
+.table th {
+    background-color: #f8f9fa;
+    border-top: none;
+}
+
+.card {
+    box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+    border: 1px solid rgba(0, 0, 0, 0.125);
+}
+
+.table-responsive {
+    border-radius: 0.375rem;
+}
+
+.token-completo {
+    background-color: #f8f9fa;
+    padding: 8px;
+    border-radius: 4px;
+    font-size: 0.85em;
+    word-break: break-all;
+    display: block;
+    margin-top: 5px;
+    border: 1px solid #dee2e6;
+    max-width: 100%;
+    overflow-wrap: break-word;
+}
+
+.token-completo:hover {
+    background-color: #e9ecef;
+    cursor: pointer;
+}
+
+.token-preview {
+    background-color: #f1f3f4;
+    padding: 4px 6px;
+    border-radius: 3px;
+    font-size: 0.8em;
+    color: #6c757d;
+    border: 1px solid #e9ecef;
+}
+
+.carrito-productos {
+    max-height: 300px;
+    overflow-y: auto;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+    padding: 10px;
+    background-color: #f8f9fa;
+}
+
+.producto-item {
+    font-size: 0.9em;
+}
+
+.producto-item:last-child {
+    border-bottom: none !important;
+}
+
+.text-white {
+    color: white !important;
+}
+
+.text-dark {
+    color: #343a40 !important;
+}
+
+/* Asegurar que los badges tengan buen contraste */
+.badge {
+    font-weight: 600;
+    letter-spacing: 0.5px;
+}
+
+.bg-success {
+    background-color: #28a745 !important;
+}
+
+.bg-info {
+    background-color: #17a2b8 !important;
+}
+
+.bg-primary {
+    background-color: #007bff !important;
+}
+
+.bg-warning {
+    background-color: #ffc107 !important;
+}
+
+/* Asegurar contraste en texto blanco */
+.text-white {
+    color: #ffffff !important;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.1);
+}
+
+/* Mejorar legibilidad en tarjetas */
+.card .card-title {
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+}
+
+.card h3 {
+    font-weight: 700;
+    margin: 0;
+}
+</style>
+{% endblock %}

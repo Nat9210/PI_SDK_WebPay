@@ -1,0 +1,126 @@
+{% extends 'base.html' %}
+
+{% block title %}Carrito - Tienda Webpay{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <h1 class="mb-4">
+            <i class="bi bi-cart"></i> Carrito de Compras
+        </h1>
+    </div>
+</div>
+
+{% if productos_carrito %}
+    <div class="row">
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header">
+                    <h5>Productos en tu carrito</h5>
+                </div>
+                <div class="card-body">
+                    {% for item in productos_carrito %}
+                        <div class="row border-bottom py-3">
+                            <div class="col-md-6">
+                                <h6>{{ item.producto.nombre }}</h6>
+                                <p class="text-muted">{{ item.producto.descripcion|truncatewords:10 }}</p>
+                            </div>
+                            <div class="col-md-2 text-center">
+                                <p><strong>{{ item.cantidad }}</strong></p>
+                                <small class="text-muted">Cantidad</small>
+                            </div>
+                            <div class="col-md-2 text-center">
+                                <p>${{ item.producto.precio|floatformat:0 }}</p>
+                                <small class="text-muted">Precio unit.</small>
+                            </div>
+                            <div class="col-md-2 text-center">
+                                <p><strong>${{ item.subtotal|floatformat:0 }}</strong></p>
+                                <small class="text-muted">Subtotal</small>
+                            </div>
+                        </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-header">
+                    <h5>Resumen del pedido</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-6">
+                            <p>Subtotal:</p>
+                        </div>
+                        <div class="col-6 text-end">
+                            <p><strong>${{ total|floatformat:0 }}</strong></p>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-6">
+                            <p>Envío:</p>
+                        </div>
+                        <div class="col-6 text-end">
+                            <p>Gratis</p>
+                        </div>
+                    </div>
+                    <hr>
+                    <div class="row">
+                        <div class="col-6">
+                            <h5>Total:</h5>
+                        </div>
+                        <div class="col-6 text-end">
+                            <h5 class="text-success">${{ total|floatformat:0 }}</h5>
+                        </div>
+                    </div>
+                    
+                    <div class="d-grid gap-2 mt-3">
+                        <form method="post" action="{% url 'pagos:iniciar_pago' %}">
+                            {% csrf_token %}
+                            <button type="submit" class="btn btn-success btn-lg">
+                                <i class="bi bi-credit-card"></i> Pagar con Webpay
+                            </button>
+                        </form>
+                        
+                        <a href="{% url 'pagos:productos' %}" class="btn btn-outline-primary">
+                            <i class="bi bi-arrow-left"></i> Seguir comprando
+                        </a>
+                        
+                        <a href="{% url 'pagos:limpiar_carrito' %}" class="btn btn-outline-danger">
+                            <i class="bi bi-trash"></i> Limpiar carrito
+                        </a>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Información sobre el ambiente de prueba -->
+            <div class="card mt-3">
+                <div class="card-header bg-warning">
+                    <h6 class="mb-0">
+                        <i class="bi bi-info-circle"></i> Ambiente de Prueba
+                    </h6>
+                </div>
+                <div class="card-body">
+                    <small>
+                        <p><strong>Datos de prueba para Webpay:</strong></p>
+                        <p><strong>Tarjeta:</strong> 4051885600446623</p>
+                        <p><strong>RUT:</strong> 11.111.111-1</p>
+                        <p><strong>Clave:</strong> 123</p>
+                    </small>
+                </div>
+            </div>
+        </div>
+    </div>
+{% else %}
+    <div class="text-center">
+        <div class="alert alert-info">
+            <h4>Tu carrito está vacío</h4>
+            <p>Agrega algunos productos para continuar.</p>
+            <a href="{% url 'pagos:productos' %}" class="btn btn-primary">
+                <i class="bi bi-shop"></i> Ver productos
+            </a>
+        </div>
+    </div>
+{% endif %}
+{% endblock %}
