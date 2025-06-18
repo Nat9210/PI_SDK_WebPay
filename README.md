@@ -197,7 +197,6 @@ Este proyecto está bajo la Licencia MIT - ver el archivo [LICENSE](LICENSE) par
 
 ✅ **Completamente funcional**  
 ✅ **Probado con 27+ transacciones**  
-✅ **Listo para producción**  
 ✅ **Documentación completa**  
 
 ---
