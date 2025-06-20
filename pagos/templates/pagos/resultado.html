@@ -1,11 +1,14 @@
-{% extends 'base.html' %}
+{% extends 'pagos/base.html' %}
 
 {% block title %}Resultado del Pago - Tienda Webpay{% endblock %}
 
 {% block content %}
 <div class="row justify-content-center">
     <div class="col-md-8">
-        {% if resultado == 'exitoso' %}
+        {% if exitoso %}
+            <div class="alert alert-success">
+                <strong>Pago realizado exitosamente</strong>
+            </div>
             <div class="card border-success">
                 <div class="card-header bg-success text-white text-center">
                     <h4><i class="bi bi-check-circle"></i> ¡Pago Exitoso!</h4>
@@ -15,7 +18,8 @@
                         <h5 class="text-success">Tu pago ha sido procesado correctamente</h5>
                         <p class="text-muted">Recibirás un email de confirmación en breve.</p>
                     </div>
-                      {% if transaccion %}
+                    
+                    {% if transaccion %}
                         <div class="row">
                             <div class="col-md-6">
                                 <p><strong>Número de orden:</strong><br>{{ transaccion.orden_compra }}</p>
@@ -38,7 +42,8 @@
                         </div>
                         
                         <hr>
-                          <div class="alert alert-info">
+                        
+                        <div class="alert alert-info">
                             <h6>Detalles adicionales:</h6>
                             <p><strong>Session ID:</strong> {{ transaccion.session_id }}</p>
                             <p><strong>Código de respuesta:</strong> {{ transaccion.response_code|default:"No disponible" }}</p>
@@ -48,17 +53,15 @@
                             {% endif %}
                         </div>
                     {% endif %}
-                </div><div class="card-footer text-center">
-                    <a href="{% url 'pagos:consultar_transaccion' %}" class="btn btn-outline-success me-2">
-                        <i class="bi bi-search"></i> Consultar Transacción
-                    </a>
+                </div>
+                <div class="card-footer text-center">
                     <a href="{% url 'pagos:productos' %}" class="btn btn-primary">
                         <i class="bi bi-shop"></i> Seguir comprando
                     </a>
                 </div>
             </div>
             
-        {% elif resultado == 'fallido' %}
+        {% elif not exitoso %}
             <div class="card border-warning">
                 <div class="card-header bg-warning text-dark text-center">
                     <h4><i class="bi bi-exclamation-triangle"></i> Pago No Procesado</h4>
@@ -69,7 +72,8 @@
                         La transacción fue rechazada por el banco. 
                         Por favor, verifica los datos de tu tarjeta e intenta nuevamente.
                     </p>
-                      {% if transaccion %}
+                    
+                    {% if transaccion %}
                         <div class="alert alert-warning">
                             <p><strong>Número de orden:</strong> {{ transaccion.orden_compra }}</p>
                             <p><strong>Estado de la transacción:</strong> {{ transaccion.estado }}</p>
@@ -79,46 +83,6 @@
                     
                     {% if messages %}
                         <div class="alert alert-warning">
-                            {% for message in messages %}
-                                <p>{{ message }}</p>
-                            {% endfor %}
-                        </div>
-                    {% endif %}                    <div class="mt-4">
-                        <a href="{% url 'pagos:consultar_transaccion' %}" class="btn btn-warning me-2">
-                            <i class="bi bi-search"></i> Consultar Estado
-                        </a>
-                        <a href="{% url 'pagos:carrito' %}" class="btn btn-warning">
-                            <i class="bi bi-arrow-left"></i> Volver al carrito
-                        </a>
-                        <a href="{% url 'pagos:productos' %}" class="btn btn-outline-primary">
-                            <i class="bi bi-shop"></i> Ver productos
-                        </a>
-                    </div>
-                </div>
-            </div>
-            
-        {% elif resultado == 'proceso' %}
-            <div class="card border-info">
-                <div class="card-header bg-info text-white text-center">
-                    <h4><i class="bi bi-hourglass-split"></i> Pago En Proceso</h4>
-                </div>
-                <div class="card-body text-center">
-                    <h5 class="text-info">Tu pago está siendo procesado</h5>
-                    <p class="text-muted">
-                        La transacción ha sido iniciada pero aún no ha sido confirmada por Webpay.
-                        Esto puede tomar algunos minutos.
-                    </p>
-                      {% if transaccion %}
-                        <div class="alert alert-info">
-                            <p><strong>Número de orden:</strong> {{ transaccion.orden_compra }}</p>
-                            <p><strong>Estado de la transacción:</strong> {{ transaccion.estado }}</p>
-                            <p><strong>Token Webpay:</strong> {{ transaccion.token|truncatechars:20 }}</p>
-                            <p><strong>Fecha de inicio:</strong> {{ transaccion.fecha_creacion|date:"d/m/Y H:i" }}</p>
-                        </div>
-                    {% endif %}
-                    
-                    {% if messages %}
-                        <div class="alert alert-info">
                             {% for message in messages %}
                                 <p>{{ message }}</p>
                             {% endfor %}
@@ -126,17 +90,12 @@
                     {% endif %}
                     
                     <div class="mt-4">
-                        <p>Si ya completaste el pago en Webpay, podrías recibir una confirmación por correo electrónico pronto.</p>
-                        <p>Si pasaron más de 15 minutos, por favor contacta a nuestro servicio de atención al cliente.</p>
-                          <div class="mt-3">
-                            <a href="{% url 'pagos:consultar_transaccion' %}" class="btn btn-info">
-                                <i class="bi bi-search"></i> Consultar Estado Actual
-                            </a>
-                            
-                            <a href="{% url 'pagos:productos' %}" class="btn btn-outline-primary">
-                                <i class="bi bi-shop"></i> Continuar comprando
-                            </a>
-                        </div>
+                        <a href="{% url 'pagos:carrito' %}" class="btn btn-warning me-2">
+                            <i class="bi bi-arrow-left"></i> Volver al carrito
+                        </a>
+                        <a href="{% url 'pagos:productos' %}" class="btn btn-outline-primary">
+                            <i class="bi bi-shop"></i> Ver productos
+                        </a>
                     </div>
                 </div>
             </div>
@@ -149,19 +108,11 @@
                 <div class="card-body text-center">
                     <h5 class="text-danger">Ocurrió un error durante el proceso</h5>
                     <p class="text-muted">
-                        Hubo un problema técnico al procesar tu pago. 
-                        Por favor, intenta nuevamente o contacta con soporte.
+                        Hubo un problema técnico al procesar tu pago. Por favor, intenta nuevamente o contacta con soporte.
                     </p>
                     
-                    {% if messages %}
+                    {% if transaccion %}
                         <div class="alert alert-danger">
-                            {% for message in messages %}
-                                <p>{{ message }}</p>
-                            {% endfor %}
-                        </div>
-                    {% endif %}
-                      {% if transaccion %}
-                        <div class="alert alert-secondary">
                             <p><strong>Número de orden:</strong> {{ transaccion.orden_compra }}</p>
                             <p><strong>Estado de la transacción:</strong> {{ transaccion.estado }}</p>
                             <p><strong>Token Webpay:</strong> {{ transaccion.token|truncatechars:20 }}</p>
@@ -169,7 +120,7 @@
                     {% endif %}
                     
                     <div class="mt-4">
-                        <a href="{% url 'pagos:carrito' %}" class="btn btn-danger">
+                        <a href="{% url 'pagos:carrito' %}" class="btn btn-danger me-2">
                             <i class="bi bi-arrow-left"></i> Volver al carrito
                         </a>
                         <a href="{% url 'pagos:productos' %}" class="btn btn-outline-primary">
@@ -177,8 +128,7 @@
                         </a>
                     </div>
                 </div>
-            </div>
-        {% endif %}
+            </div>        {% endif %}
         
         <!-- Información sobre el ambiente de prueba -->
         <div class="card mt-4">
@@ -193,7 +143,8 @@
                     <p>En producción, aquí se mostraría información real de la transacción.</p>
                     <p>Para probar transacciones exitosas, usa:</p>
                     <ul>
-                        <li>Número de tarjeta: 4051 8856 0044 6623</li>
+                        <li>Número de tarjeta Credito: 4051 8856 0044 6623</li>
+                        <li>Número de tarjeta Debito: 4051 8842 3993 7763</li>
                         <li>Fecha de expiración: Cualquiera en el futuro</li>
                         <li>CVV: 123</li>
                     </ul>

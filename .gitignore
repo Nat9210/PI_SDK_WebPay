@@ -71,3 +71,13 @@ coverage.xml
 *.cover
 .hypothesis/
 .pytest_cache/
+
+# Django static files (auto-generados)
+staticfiles/
+
+# Archivos de sistema Windows
+desktop.ini
+Thumbs.db
+
+# Configuraciones personales de VS Code
+*.code-workspace

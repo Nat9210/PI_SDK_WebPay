@@ -2,12 +2,121 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}Tienda con Webpay{% endblock %}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">    <title>{% block title %}Tienda con Webpay{% endblock %}</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.7.2/font/bootstrap-icons.css" rel="stylesheet">
-    {% load static %}
-    <link rel="stylesheet" href="{% static 'css/style.css' %}">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">    {% load static %}
+    <link rel="stylesheet" href="{% static 'css/style.css' %}?v={% now 'U' %}">
+    <style>
+        /* Estilos críticos del vendedor - inline para asegurar carga */
+        .stats-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+        .stat-item {
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 8px;
+            padding: 15px;
+            text-align: center;
+        }
+        .stat-number {
+            font-size: 2em;
+            font-weight: bold;
+            display: block;
+        }
+        .stat-label {
+            font-size: 0.9em;
+            opacity: 0.9;
+        }
+        .pedido-card {
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 15px;
+            background: white;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            transition: all 0.3s ease;
+        }
+        .pedido-card:hover {
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+            transform: translateY(-2px);
+        }
+        .badge-estado {
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 0.85em;
+            font-weight: 500;
+            text-transform: uppercase;
+        }
+        .badge-pendiente { 
+            background: #fff3cd; 
+            color: #856404; 
+        }
+        .badge-aceptado { 
+            background: #d4edda; 
+            color: #155724; 
+        }
+        .badge-rechazado { 
+            background: #f8d7da; 
+            color: #721c24; 
+        }
+        .btn-action {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 0.9em;
+            transition: all 0.3s ease;
+            margin-right: 5px;
+        }
+        .btn-detalle {
+            background: #007bff;
+            color: white;
+        }
+        .btn-detalle:hover {
+            background: #0056b3;
+            color: white;
+            text-decoration: none;
+        }
+        .btn-aceptar {
+            background: #28a745;
+            color: white;
+        }
+        .btn-aceptar:hover {
+            background: #1e7e34;
+        }
+        .btn-rechazar {
+            background: #dc3545;
+            color: white;
+        }
+        .btn-rechazar:hover {
+            background: #c82333;
+        }
+        .filtros-pedidos {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        .monto-destacado {
+            font-size: 1.2em;
+            font-weight: bold;
+            color: #28a745;
+        }
+    </style>>
 </head>
 <body>
     <!-- Navegación -->
@@ -17,19 +126,16 @@
                 <i class="bi bi-shop"></i> Tienda Webpay
             </a>            <div class="navbar-nav ms-auto">
                 <a class="nav-link" href="{% url 'pagos:productos' %}">
-                    <i class="bi bi-grid"></i> Productos
-                </a>
+                    <i class="bi bi-grid"></i> Productos                </a>
                 <a class="nav-link" href="{% url 'pagos:carrito' %}">
                     <i class="bi bi-cart"></i> Carrito
                     {% if request.session.carrito %}
-                        <span class="badge bg-danger">{{ request.session.carrito|length }}</span>
-                    {% endif %}
+                        <span class="badge bg-danger">{{ request.session.carrito|length }}</span>                    {% endif %}
+                </a>                <a class="nav-link" href="{% url 'pagos:vendedor_dashboard' %}">
+                    <i class="bi bi-person-badge"></i> Vendedor
                 </a>
                 <a class="nav-link" href="{% url 'pagos:transacciones_exitosas' %}">
-                    <i class="bi bi-check-circle"></i> Transacciones
-                </a>
-                <a class="nav-link" href="{% url 'pagos:consultar_transaccion' %}">
-                    <i class="bi bi-search"></i> Consultar
+                    <i class="bi bi-graph-up"></i> Transacciones
                 </a>
             </div>
         </div>

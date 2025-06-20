@@ -1,6 +1,6 @@
 from django.db import models
-from django.contrib.sessions.models import Session
 import json
+
 
 class Producto(models.Model):
     nombre = models.CharField(max_length=200)
@@ -15,6 +15,7 @@ class Producto(models.Model):
 
     class Meta:
         verbose_name_plural = "Productos"
+
 
 class ItemCarrito(models.Model):
     session_key = models.CharField(max_length=40)
@@ -32,6 +33,7 @@ class ItemCarrito(models.Model):
     class Meta:
         unique_together = ('session_key', 'producto')
 
+
 class Transaccion(models.Model):
     ESTADOS = [
         ('PENDIENTE', 'Pendiente'),
@@ -39,12 +41,22 @@ class Transaccion(models.Model):
         ('RECHAZADA', 'Rechazada'),
         ('ANULADA', 'Anulada'),
     ]
+    
+    ESTADOS_PEDIDO = [
+        ('PENDIENTE_REVISION', 'Pendiente de Revisión'),
+        ('ACEPTADO', 'Aceptado por Vendedor'),
+        ('RECHAZADO', 'Rechazado por Vendedor'),
+        ('EN_PREPARACION', 'En Preparación'),
+        ('ENVIADO', 'Enviado'),
+        ('ENTREGADO', 'Entregado'),
+    ]
 
     orden_compra = models.CharField(max_length=26, unique=True)
     session_id = models.CharField(max_length=61)
     token = models.CharField(max_length=64, blank=True)
     monto = models.DecimalField(max_digits=10, decimal_places=2)
     estado = models.CharField(max_length=20, choices=ESTADOS, default='PENDIENTE')
+    estado_pedido = models.CharField(max_length=20, choices=ESTADOS_PEDIDO, default='PENDIENTE_REVISION')
     
     # Datos de respuesta de Webpay
     vci = models.CharField(max_length=10, blank=True)
@@ -72,21 +84,17 @@ class Transaccion(models.Model):
 
     def set_detalle_carrito(self, items_carrito):
         """Guarda los items del carrito en formato JSON"""
-        carrito_data = []
-        for item in items_carrito:
-            carrito_data.append({
+        carrito_data = [
+            {
                 'producto_id': item.producto.id,
                 'producto_nombre': item.producto.nombre,
                 'producto_precio': float(item.producto.precio),
                 'cantidad': item.cantidad,
                 'subtotal': float(item.subtotal)
-            })
+            }
+            for item in items_carrito
+        ]
         self.detalle_carrito = json.dumps(carrito_data, ensure_ascii=False)
-
-    def get_total_productos(self):
-        """Retorna el total de productos en la transacción"""
-        detalle = self.get_detalle_carrito()
-        return sum(item.get('cantidad', 0) for item in detalle)
 
     def __str__(self):
         return f"Transacción {self.orden_compra} - {self.estado}"

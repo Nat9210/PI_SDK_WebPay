@@ -1,23 +1,38 @@
 from django.shortcuts import render, get_object_or_404, redirect
-from django.http import JsonResponse, HttpResponse
+from django.http import JsonResponse
 from django.contrib import messages
 from django.urls import reverse
 from django.views.decorators.csrf import csrf_exempt
-from django.utils.decorators import method_decorator
-from django.views.decorators.http import require_http_methods
-from django.utils import timezone
-from decimal import Decimal
+from django.db.models import Q
 from .models import Producto, ItemCarrito, Transaccion
 from .services_sdk import WebpaySDKService
-import uuid
+from .utils import (
+    validar_session_key,
+    obtener_estadisticas_carrito,
+    validar_datos_pago,
+    agregar_producto_carrito,
+    limpiar_carrito as limpiar_carrito_util,
+    crear_transaccion_webpay,
+    get_carrito_items,
+    cambiar_estado_transaccion,
+    procesar_filtros_fecha,
+    procesar_filtros_transacciones,
+    calcular_estadisticas_transacciones,
+    preparar_detalle_productos_json,
+    obtener_transacciones_autorizadas
+)
 import logging
 
 logger = logging.getLogger(__name__)
 
+# ===============================================
+# VISTA 1: CATÁLOGO DE PRODUCTOS
+# ===============================================
 def productos(request):
     """Vista para mostrar todos los productos disponibles"""
     productos = Producto.objects.filter(activo=True)
     return render(request, 'pagos/productos.html', {'productos': productos})
+
 
 def agregar_carrito(request, producto_id):
     """Agregar producto al carrito"""
@@ -25,89 +40,68 @@ def agregar_carrito(request, producto_id):
         producto = get_object_or_404(Producto, id=producto_id)
         cantidad = int(request.POST.get('cantidad', 1))
         
-        # Asegurar que tenemos una sesión
-        if not request.session.session_key:
-            request.session.save()
-        
-        session_key = request.session.session_key
+        session_key = validar_session_key(request)
         
         # Verificar stock
         if cantidad > producto.stock:
             messages.error(request, f'Solo hay {producto.stock} unidades disponibles')
             return redirect('pagos:productos')
         
-        # Agregar o actualizar item en carrito
-        item, created = ItemCarrito.objects.get_or_create(
-            session_key=session_key,
-            producto=producto,
-            defaults={'cantidad': cantidad}
-        )
-        
-        if not created:
-            nueva_cantidad = item.cantidad + cantidad
-            if nueva_cantidad > producto.stock:
+        # Verificar stock para item existente
+        items_actuales = get_carrito_items(session_key).filter(producto=producto)
+        if items_actuales.exists():
+            cantidad_actual = items_actuales.first().cantidad
+            if cantidad_actual + cantidad > producto.stock:
                 messages.error(request, f'No hay suficiente stock. Máximo: {producto.stock}')
                 return redirect('pagos:productos')
-            item.cantidad = nueva_cantidad
-            item.save()
         
+        # Agregar producto usando utilidad
+        item, created = agregar_producto_carrito(session_key, producto, cantidad)
         messages.success(request, f'{producto.nombre} agregado al carrito')
-        return redirect('pagos:productos')
     
     return redirect('pagos:productos')
 
+
 def carrito(request):
     """Vista del carrito de compras"""
-    if not request.session.session_key:
-        request.session.save()
+    session_key = validar_session_key(request)
+    estadisticas = obtener_estadisticas_carrito(session_key)
     
-    session_key = request.session.session_key
-    productos_carrito = ItemCarrito.objects.filter(session_key=session_key)
-    
-    total = sum(item.subtotal for item in productos_carrito)
-    
-    context = {
-        'productos_carrito': productos_carrito,
-        'total': total,
-    }
-    return render(request, 'pagos/carrito.html', context)
+    return render(request, 'pagos/carrito.html', {
+        'productos_carrito': estadisticas['items'],
+        'total': estadisticas['total_precio'],
+    })
+
 
 def limpiar_carrito(request):
     """Limpiar todos los productos del carrito"""
-    if request.session.session_key:
-        ItemCarrito.objects.filter(session_key=request.session.session_key).delete()
+    session_key = request.session.session_key
+    if session_key:
+        limpiar_carrito_util(session_key)
         messages.success(request, 'Carrito limpiado exitosamente')
     return redirect('pagos:carrito')
+
 
 def iniciar_pago(request):
     """Iniciar proceso de pago con Webpay"""
     if request.method == 'POST':
-        if not request.session.session_key:
-            messages.error(request, 'No hay productos en el carrito')
+        session_key = validar_session_key(request)
+        
+        # Validar carrito usando utilidad
+        es_valido, mensaje_error = validar_datos_pago(session_key)
+        if not es_valido:
+            messages.error(request, mensaje_error)
             return redirect('pagos:productos')
         
-        session_key = request.session.session_key
-        productos_carrito = ItemCarrito.objects.filter(session_key=session_key)
+        # Obtener estadísticas del carrito
+        estadisticas = obtener_estadisticas_carrito(session_key)
+        total = estadisticas['total_precio']
         
-        if not productos_carrito.exists():
-            messages.error(request, 'El carrito está vacío')
-            return redirect('pagos:productos')
-        
-        # Calcular total
-        total = sum(item.subtotal for item in productos_carrito)
-        
-        # Generar orden de compra única
-        orden_compra = f"ORD-{uuid.uuid4().hex[:20].upper()}"
-        session_id = f"SES-{uuid.uuid4().hex[:20].upper()}"
-          # Crear transacción en BD
-        transaccion = Transaccion.objects.create(
-            orden_compra=orden_compra,
-            session_id=session_id,
-            monto=total
-        )
+        # Crear transacción usando utilidad
+        transaccion = crear_transaccion_webpay(session_key, total)
         
         # Guardar detalle del carrito en la transacción
-        transaccion.set_detalle_carrito(productos_carrito)
+        transaccion.set_detalle_carrito(estadisticas['items'])
         transaccion.save()
         
         # URL de retorno
@@ -116,8 +110,8 @@ def iniciar_pago(request):
         # Crear transacción en Webpay
         webpay_service = WebpaySDKService()
         resultado = webpay_service.crear_transaccion(
-            orden_compra=orden_compra,
-            session_id=session_id,
+            orden_compra=transaccion.orden_compra,
+            session_id=transaccion.orden_compra,
             monto=total,
             url_retorno=url_retorno
         )
@@ -141,6 +135,7 @@ def iniciar_pago(request):
     
     return redirect('pagos:carrito')
 
+
 @csrf_exempt
 def retorno_webpay(request):
     """Procesar retorno desde Webpay"""
@@ -153,20 +148,19 @@ def retorno_webpay(request):
     try:
         # Buscar transacción por token
         transaccion = Transaccion.objects.get(token=token_ws)
-        
-        # Confirmar transacción con Webpay
+          # Confirmar transacción con Webpay
         webpay_service = WebpaySDKService()
         resultado = webpay_service.confirmar_transaccion(token_ws)
         
         if resultado['success']:
             # Actualizar transacción con datos de respuesta
-            transaccion.vci = resultado.get('vci', '')
-            transaccion.authorization_code = resultado.get('authorization_code', '')
-            transaccion.response_code = resultado.get('response_code', -1)
+            transaccion.response_code = resultado.get('response_code')
+            transaccion.payment_type_code = resultado.get('payment_type_code')
+            transaccion.installments_number = resultado.get('installments_number')
+            transaccion.vci = resultado.get('vci')
+            transaccion.accounting_date = resultado.get('accounting_date')
             transaccion.transaction_date = resultado.get('transaction_date')
-            transaccion.accounting_date = resultado.get('accounting_date', '')
-            transaccion.payment_type_code = resultado.get('payment_type_code', '')
-            transaccion.installments_number = resultado.get('installments_number', 0)
+            transaccion.authorization_code = resultado.get('authorization_code')
             
             # Determinar estado según response_code
             if resultado.get('response_code') == 0:
@@ -174,7 +168,7 @@ def retorno_webpay(request):
                 
                 # Limpiar carrito si el pago fue exitoso
                 if hasattr(request, 'session') and request.session.session_key:
-                    ItemCarrito.objects.filter(session_key=request.session.session_key).delete()
+                    limpiar_carrito_util(request.session.session_key)
                 
                 messages.success(request, 'Pago realizado exitosamente')
             else:
@@ -184,250 +178,270 @@ def retorno_webpay(request):
             transaccion.save()
             
             # Guardar ID de transacción en sesión para mostrar resultado
-            request.session['ultima_transaccion_id'] = transaccion.id
+            request.session['transaccion_resultado_id'] = transaccion.id
             
         else:
-            transaccion.estado = 'RECHAZADA'
+            transaccion.estado = 'ERROR'
             transaccion.save()
             messages.error(request, f'Error al confirmar pago: {resultado["error"]}')
-    
+        
+        return redirect('pagos:resultado')
+        
     except Transaccion.DoesNotExist:
         messages.error(request, 'Transacción no encontrada')
+        return redirect('pagos:productos')
     except Exception as e:
-        logger.error(f'Error en retorno Webpay: {str(e)}')
-        messages.error(request, 'Error al procesar el retorno del pago')
-    
-    return redirect('pagos:resultado')
+        logger.error(f'Error en retorno_webpay: {str(e)}')
+        messages.error(request, 'Error al procesar el pago')
+        return redirect('pagos:productos')
+
 
 def resultado(request):
     """Mostrar resultado del pago"""
-    transaccion_id = request.session.get('ultima_transaccion_id')
+    transaccion_id = request.session.get('transaccion_resultado_id')
     
     if not transaccion_id:
-        messages.error(request, 'No se encontró información de la transacción')
+        messages.error(request, 'No hay información de transacción')
         return redirect('pagos:productos')
     
     try:
-        transaccion = Transaccion.objects.get(id=transaccion_id)
+        transaccion = Transaccion.objects.get(id=transaccion_id)        # Limpiar la sesión
+        if 'transaccion_resultado_id' in request.session:
+            del request.session['transaccion_resultado_id']
+        if 'transaccion_id' in request.session:
+            del request.session['transaccion_id']
         
-        # Determinar el tipo de resultado basado en el estado de la transacción
-        if transaccion.estado == 'AUTORIZADA':
-            resultado = 'exitoso'
-        elif transaccion.estado == 'RECHAZADA':
-            resultado = 'fallido'
-        elif transaccion.estado == 'PENDIENTE':
-            resultado = 'proceso'
-        else:
-            resultado = 'error'
-        
-        context = {
+        return render(request, 'pagos/resultado.html', {
             'transaccion': transaccion,
-            'resultado': resultado
-        }
+            'exitoso': transaccion.estado == 'AUTORIZADA',
+            'debug': True  # Solo para desarrollo
+        })
         
-        return render(request, 'pagos/resultado.html', context)
     except Transaccion.DoesNotExist:
         messages.error(request, 'Transacción no encontrada')
         return redirect('pagos:productos')
 
-def consultar_transaccion(request):
-    """Consultar estado de una transacción"""
-    transaccion = None
-    
-    if request.method == 'POST':
-        orden_compra = request.POST.get('orden_compra')
-        if orden_compra:
-            try:
-                transaccion = Transaccion.objects.get(orden_compra=orden_compra)
-            except Transaccion.DoesNotExist:
-                messages.error(request, 'Transacción no encontrada')
-    
-    return render(request, 'pagos/consultar_transaccion.html', {'transaccion': transaccion})
 
-def transacciones_exitosas_json(request):
-    """Vista que retorna un JSON con todas las transacciones exitosas y sus detalles"""
-    try:
-        # Obtener todas las transacciones autorizadas
-        transacciones_exitosas = Transaccion.objects.filter(estado='AUTORIZADA').order_by('-fecha_creacion')
+def vendedor_dashboard(request):
+    """Dashboard simple del vendedor"""
+    # Query base
+    pedidos = obtener_transacciones_autorizadas()
+    
+    # Aplicar filtros usando función utilitaria
+    pedidos = procesar_filtros_transacciones(pedidos, request)
+      # Estadísticas básicas
+    total_pedidos = pedidos.count()
+    pedidos_pendientes = pedidos.filter(estado_pedido='PENDIENTE_REVISION').count()
+    pedidos_aceptados = pedidos.filter(estado_pedido='ACEPTADO').count()
+    pedidos_rechazados = pedidos.filter(estado_pedido='RECHAZADO').count()
+    
+    # Paginación simple (primeros 50)
+    pedidos = pedidos[:50]
+    
+    return render(request, 'pagos/vendedor_dashboard.html', {
+        'pedidos': pedidos,
+        'total_pedidos': total_pedidos,
+        'pedidos_pendientes': pedidos_pendientes,
+        'pedidos_aceptados': pedidos_aceptados,
+        'pedidos_rechazados': pedidos_rechazados,        'estado_filtro': request.GET.get('estado', ''),
+        'busqueda': request.GET.get('busqueda', ''),
+        'estados_opciones': [
+            ('PENDIENTE_REVISION', 'Pendiente Revisión'),
+            ('ACEPTADO', 'Aceptado'),
+            ('RECHAZADO', 'Rechazado'),
+            ('EN_PREPARACION', 'En Preparación'),
+            ('ENVIADO', 'Enviado'),
+            ('ENTREGADO', 'Entregado'),
+        ]
+    })
+
+
+def vendedor_dashboard_json(request):
+    """API JSON del dashboard vendedor - solo número de orden y detalle de compra"""
+    # Obtener todas las transacciones autorizadas para el vendedor
+    transacciones = obtener_transacciones_autorizadas()
+    
+    # Aplicar filtros usando función utilitaria
+    transacciones = procesar_filtros_transacciones(transacciones, request)
+    
+    # Calcular estadísticas ANTES del slice
+    estadisticas = {
+        'total_pedidos': transacciones.count(),
+        'pedidos_pendientes': transacciones.filter(estado_pedido='PENDIENTE_REVISION').count(),
+        'pedidos_aceptados': transacciones.filter(estado_pedido='ACEPTADO').count(),
+        'pedidos_rechazados': transacciones.filter(estado_pedido='RECHAZADO').count(),
+    }
+    
+    # Limitar resultados para rendimiento
+    transacciones = transacciones[:100]
+    
+    # Preparar datos para JSON - solo orden y detalle de compra
+    data = []
+    for transaccion in transacciones:        # Obtener detalle de la compra usando función utilitaria
+        detalle_compra = preparar_detalle_productos_json(transaccion)
         
-        # Construir el JSON con todos los detalles
-        data = {
-            'status': 'success',
-            'total_transacciones': transacciones_exitosas.count(),
-            'fecha_consulta': timezone.now().isoformat(),
-            'transacciones': []
-        }
+        data.append({
+            'orden_compra': transaccion.orden_compra,
+            'fecha': transaccion.fecha_creacion.strftime('%d/%m/%Y %H:%M'),
+            'monto_total': float(transaccion.monto),
+            'estado_pedido': transaccion.estado_pedido,
+            'estado_pedido_display': transaccion.get_estado_pedido_display(),
+            'detalle_compra': detalle_compra
+        })
+    
+    return JsonResponse({
+        'estadisticas': estadisticas,
+        'pedidos': data,
+        'total': len(data)
+    })
+
+
+def vendedor_gestionar_estados(request, transaccion_id=None):
+    """Gestionar estados de pedidos"""
+    if request.method != 'POST':
+        return JsonResponse({'status': 'error', 'message': 'Método no permitido'}, status=405)
+    
+    # Gestión individual
+    if transaccion_id:
+        accion = request.POST.get('accion')
+        if not accion:
+            messages.error(request, 'Acción no especificada')
+            return redirect('pagos:vendedor_dashboard')
         
-        for transaccion in transacciones_exitosas:
-            transaccion_data = {
-                'id': transaccion.id,
-                'orden_compra': transaccion.orden_compra,
-                'detalles_basicos': {
-                    'monto': float(transaccion.monto),
-                    'estado': transaccion.estado,
-                    'fecha_creacion': transaccion.fecha_creacion.isoformat(),
-                    'fecha_actualizacion': transaccion.fecha_actualizacion.isoformat(),
-                    'session_id': transaccion.session_id,
-                    'token': transaccion.token
-                },
-                'detalle_carrito': {
-                    'productos': transaccion.get_detalle_carrito(),
-                    'total_productos': transaccion.get_total_productos(),
-                    'resumen': {
-                        'cantidad_items': len(transaccion.get_detalle_carrito()),
-                        'monto_total': float(transaccion.monto)
-                    }
-                },
-                'detalles_webpay': {
-                    'vci': transaccion.vci,
-                    'codigo_autorizacion': transaccion.authorization_code,
-                    'codigo_respuesta': transaccion.response_code,
-                    'fecha_transaccion': transaccion.transaction_date.isoformat() if transaccion.transaction_date else None,
-                    'fecha_contable': transaccion.accounting_date,
-                    'tipo_pago': transaccion.payment_type_code,
-                    'numero_cuotas': transaccion.installments_number
-                },
-                'informacion_adicional': {
-                    'metodo_pago': get_payment_method_description(transaccion.payment_type_code),
-                    'estado_vci': get_vci_description(transaccion.vci),
-                    'resultado_transaccion': get_response_code_description(transaccion.response_code)
-                }
+        transaccion = get_object_or_404(Transaccion, id=transaccion_id, estado='AUTORIZADA')
+        
+        # Usar utilidad para cambiar estado
+        exito, mensaje = cambiar_estado_transaccion(transaccion, accion)
+        
+        if exito:
+            messages.success(request, mensaje)
+        else:
+            messages.error(request, mensaje)
+        
+        return redirect('pagos:vendedor_dashboard')
+    
+    # Gestión en lote (básica)
+    else:
+        import json
+        try:
+            data = json.loads(request.body)
+            accion = data.get('accion')
+            pedido_ids = data.get('pedido_ids', [])
+            
+            if not accion or not pedido_ids:
+                return JsonResponse({
+                    'status': 'error', 
+                    'message': 'Acción y pedidos son requeridos'
+                }, status=400)
+            
+            # Estados válidos para lote
+            estados_lote = {
+                'aceptar': 'ACEPTADO',
+                'rechazar': 'RECHAZADO',
+                'cancelar': 'CANCELADO'
             }
             
-            data['transacciones'].append(transaccion_data)
-        
-        # Agregar estadísticas generales
-        if transacciones_exitosas:
-            montos = [float(t.monto) for t in transacciones_exitosas]
-            data['estadisticas'] = {
-                'monto_total': sum(montos),
-                'monto_promedio': sum(montos) / len(montos),
-                'monto_maximo': max(montos),
-                'monto_minimo': min(montos),
-                'transacciones_por_tipo_pago': get_payment_stats(transacciones_exitosas)
-            }
-        
-        return JsonResponse(data)
-    
-    except Exception as e:
-        logger.error(f'Error al obtener transacciones exitosas: {str(e)}')
-        return JsonResponse({
-            'status': 'error',
-            'mensaje': 'Error interno del servidor',
-            'detalle': str(e)
-        }, status=500)
+            if accion not in estados_lote:
+                return JsonResponse({
+                    'status': 'error',
+                    'message': f'Acción "{accion}" no válida para operación en lote'
+                }, status=400)
+            
+            # Actualizar pedidos en lote
+            pedidos_actualizados = Transaccion.objects.filter(
+                id__in=pedido_ids, 
+                estado='AUTORIZADA'
+            ).update(estado_pedido=estados_lote[accion])
+            
+            return JsonResponse({
+                'status': 'success',
+                'message': f'{pedidos_actualizados} pedidos actualizados exitosamente',
+                'pedidos_actualizados': pedidos_actualizados
+            })
+            
+        except json.JSONDecodeError:
+            return JsonResponse({'status': 'error', 'message': 'JSON inválido'}, status=400)
+        except Exception as e:
+            logger.error(f'Error en acciones lote: {str(e)}')
+            return JsonResponse({'status': 'error', 'message': 'Error interno'}, status=500)
 
-def get_payment_method_description(payment_type_code):
-    """Obtiene la descripción del método de pago según el código"""
-    payment_types = {
-        'VD': 'Venta Débito',
-        'VN': 'Venta Normal',
-        'VC': 'Venta en Cuotas',
-        'SI': 'Sin Interés',
-        'S2': 'Sin Interés 2 cuotas',
-        'S3': 'Sin Interés 3 cuotas',
-        'N2': 'Cuotas 2',
-        'N3': 'Cuotas 3',
-        'N4': 'Cuotas 4',
-        'N5': 'Cuotas 5',
-        'N6': 'Cuotas 6',
-        'N7': 'Cuotas 7',
-        'N8': 'Cuotas 8',
-        'N9': 'Cuotas 9',
-        'N10': 'Cuotas 10',
-        'N11': 'Cuotas 11',
-        'N12': 'Cuotas 12'
-    }
-    return payment_types.get(payment_type_code, f'Código desconocido: {payment_type_code}')
-
-def get_vci_description(vci):
-    """Obtiene la descripción del VCI"""
-    vci_codes = {
-        'TSY': 'Autenticación exitosa',
-        'TSN': 'Autenticación fallida',
-        'TSU': 'Autenticación no pudo ser realizada',
-        'TSA': 'Intento de autenticación',
-        'TS': 'Sin autenticación',
-        '': 'Sin información VCI'
-    }
-    return vci_codes.get(vci, f'VCI desconocido: {vci}')
-
-def get_response_code_description(response_code):
-    """Obtiene la descripción del código de respuesta"""
-    if response_code == 0:
-        return 'Transacción aprobada'
-    elif response_code == -1:
-        return 'Rechazo de transacción'
-    elif response_code == -2:
-        return 'Transacción debe reintentarse'
-    elif response_code == -3:
-        return 'Error en transacción'
-    elif response_code == -4:
-        return 'Rechazo de transacción'
-    elif response_code == -5:
-        return 'Rechazo por error de tasa'
-    elif response_code == -6:
-        return 'Excede cupo máximo mensual'
-    elif response_code == -7:
-        return 'Excede límite diario por transacción'
-    elif response_code == -8:
-        return 'Rubro no autorizado'
-    else:
-        return f'Código de respuesta: {response_code}'
-
-def get_payment_stats(transacciones):
-    """Obtiene estadísticas por tipo de pago"""
-    stats = {}
-    for transaccion in transacciones:
-        tipo_pago = transaccion.payment_type_code or 'Sin especificar'
-        if tipo_pago not in stats:
-            stats[tipo_pago] = {
-                'cantidad': 0,
-                'monto_total': 0,
-                'descripcion': get_payment_method_description(tipo_pago)
-            }
-        stats[tipo_pago]['cantidad'] += 1
-        stats[tipo_pago]['monto_total'] += float(transaccion.monto)
-    
-    return stats
 
 def transacciones_exitosas(request):
-    """Vista para mostrar las transacciones exitosas en una página web"""
-    transacciones_exitosas = Transaccion.objects.filter(estado='AUTORIZADA').order_by('-fecha_creacion')
+    """Vista de transacciones exitosas para el contador/visualización"""
+    # Obtener todas las transacciones autorizadas
+    transacciones = obtener_transacciones_autorizadas()
     
-    # Agregar formato legible de fecha contable a cada transacción
-    for transaccion in transacciones_exitosas:
-        transaccion.fecha_contable_legible = format_accounting_date_readable(transaccion.accounting_date)
+    # Aplicar filtros usando función utilitaria
+    transacciones = procesar_filtros_transacciones(transacciones, request)
     
-    # Calcular estadísticas
-    total_transacciones = transacciones_exitosas.count()
-    monto_total = sum(t.monto for t in transacciones_exitosas)
+    # Calcular estadísticas usando función utilitaria
+    estadisticas = calcular_estadisticas_transacciones(transacciones)
+    
+    # Limitar resultados para rendimiento
+    transacciones = transacciones[:100]
     
     context = {
-        'transacciones': transacciones_exitosas,
-        'total_transacciones': total_transacciones,
-        'monto_total': monto_total,
-        'monto_promedio': monto_total / total_transacciones if total_transacciones > 0 else 0,
+        'transacciones': transacciones,
+        'total_transacciones': estadisticas['total_transacciones'],
+        'monto_total': estadisticas['monto_total'],
+        'monto_promedio': estadisticas['monto_promedio'],
+        'estado_filtro': request.GET.get('estado_pedido', ''),
+        'busqueda': request.GET.get('busqueda', ''),
+        'fecha_desde': request.GET.get('fecha_desde', ''),
+        'fecha_hasta': request.GET.get('fecha_hasta', ''),
+        'estados_opciones': [
+            ('PENDIENTE_REVISION', 'Pendiente Revisión'),
+            ('ACEPTADO', 'Aceptado'),
+            ('RECHAZADO', 'Rechazado'),
+            ('EN_PREPARACION', 'En Preparación'),
+            ('ENVIADO', 'Enviado'),
+            ('ENTREGADO', 'Entregado'),
+        ]
     }
     
     return render(request, 'pagos/transacciones_exitosas.html', context)
 
-def format_accounting_date_readable(accounting_date):
-    """Convierte fecha contable MMDD a formato legible"""
-    if not accounting_date or len(accounting_date) != 4:
-        return accounting_date or "-"
+
+def transacciones_exitosas_json(request):
+    """API JSON de transacciones exitosas para el contador"""
+    # Obtener todas las transacciones autorizadas
+    transacciones = obtener_transacciones_autorizadas()
     
-    try:
-        month = int(accounting_date[:2])
-        day = accounting_date[2:]
-        
-        months = {
-            1: 'Enero', 2: 'Febrero', 3: 'Marzo', 4: 'Abril',
-            5: 'Mayo', 6: 'Junio', 7: 'Julio', 8: 'Agosto',
-            9: 'Septiembre', 10: 'Octubre', 11: 'Noviembre', 12: 'Diciembre'
+    # Aplicar filtros usando función utilitaria
+    transacciones = procesar_filtros_transacciones(transacciones, request)
+    
+    # Calcular estadísticas usando función utilitaria
+    estadisticas = calcular_estadisticas_transacciones(transacciones)
+    
+    # Limitar resultados
+    transacciones = transacciones[:100]
+    
+    # Preparar datos JSON
+    datos_transacciones = []
+    for t in transacciones:
+        datos_transacciones.append({
+            'id': t.id,
+            'orden_compra': t.orden_compra,
+            'monto': float(t.monto),
+            'estado': t.estado,
+            'estado_pedido': t.estado_pedido,
+            'fecha_creacion': t.fecha_creacion.isoformat() if t.fecha_creacion else None,
+            'authorization_code': t.authorization_code,
+            'session_id': t.session_id,
+            'productos': preparar_detalle_productos_json(t)
+        })    
+    respuesta = {
+        'estadisticas': {
+            'total_transacciones': estadisticas['total_transacciones'],
+            'monto_total': float(estadisticas['monto_total']),
+            'monto_promedio': float(estadisticas['monto_promedio'])
+        },
+        'transacciones': datos_transacciones,
+        'filtros_aplicados': {
+            'estado_pedido': request.GET.get('estado_pedido', ''),
+            'fecha_desde': request.GET.get('fecha_desde', ''),
+            'fecha_hasta': request.GET.get('fecha_hasta', '')
         }
-        
-        month_name = months.get(month, 'Mes')
-        return f"{day} de {month_name}"
-    except:
-        return accounting_date
+    }
+    
+    return JsonResponse(respuesta)

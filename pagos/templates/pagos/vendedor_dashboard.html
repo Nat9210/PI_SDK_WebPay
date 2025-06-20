@@ -1,0 +1,179 @@
+{% extends 'pagos/base.html' %}
+
+{% block title %}Dashboard Vendedor{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2 class="mb-4">Dashboard Vendedor</h2>    <!-- Estadísticas básicas -->
+    <div class="row mb-4">
+        <div class="col-md-2">
+            <div class="card bg-primary text-white">
+                <div class="card-body text-center">
+                    <h6>Total Pedidos</h6>
+                    <h3>{{ total_pedidos }}</h3>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-2">
+            <div class="card bg-warning text-dark">
+                <div class="card-body text-center">
+                    <h6>Pendientes</h6>
+                    <h3>{{ pedidos_pendientes }}</h3>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-2">
+            <div class="card bg-success text-white">
+                <div class="card-body text-center">
+                    <h6>Aceptados</h6>
+                    <h3>{{ pedidos_aceptados }}</h3>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-2">
+            <div class="card bg-danger text-white">
+                <div class="card-body text-center">
+                    <h6>Rechazados</h6>
+                    <h3>{{ pedidos_rechazados }}</h3>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card bg-info text-white">
+                <div class="card-body text-center">
+                    <h6>API JSON Vendedor</h6>
+                    <a href="{% url 'pagos:vendedor_dashboard_json' %}" class="btn btn-light btn-sm" target="_blank">
+                        Ver JSON
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Filtros -->
+    <div class="card mb-4">
+        <div class="card-body">
+            <form method="get" class="row g-3">
+                <div class="col-md-4">
+                    <select name="estado" class="form-select">
+                        <option value="">Todos los estados</option>
+                        {% for codigo, nombre in estados_opciones %}
+                            <option value="{{ codigo }}" {% if estado_filtro == codigo %}selected{% endif %}>{{ nombre }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <input type="text" name="busqueda" class="form-control" placeholder="Buscar por orden o autorización" value="{{ busqueda }}">
+                </div>
+                <div class="col-md-4">
+                    <button type="submit" class="btn btn-primary">Filtrar</button>
+                    <a href="{% url 'pagos:vendedor_dashboard' %}" class="btn btn-outline-secondary">Limpiar</a>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Lista de pedidos sin checkboxes -->
+    {% if pedidos %}
+    <div class="card">
+        <div class="card-header">
+            <h5>📋 Pedidos ({{ pedidos|length }})</h5>
+        </div>
+        <div class="card-body">
+            {% for pedido in pedidos %}
+            <div class="pedido-card mb-3 p-3 border rounded">
+                <div class="row align-items-center">
+                    <div class="col-md-2">
+                        <strong>{{ pedido.orden_compra|slice:":12" }}...</strong><br>
+                        <small class="text-muted">{{ pedido.fecha_creacion|date:"d/m/Y H:i" }}</small>
+                    </div>
+                    <div class="col-md-2">
+                        <strong class="text-success">${{ pedido.monto|floatformat:0 }}</strong><br>
+                        <small class="text-muted">{{ pedido.authorization_code|default:"Sin código" }}</small>
+                    </div>
+                    <div class="col-md-3">
+                        {% if pedido.get_detalle_carrito %}
+                            <small>
+                                {% for producto in pedido.get_detalle_carrito %}
+                                    • {{ producto.producto_nombre }} ({{ producto.cantidad }})<br>
+                                {% endfor %}
+                            </small>
+                        {% else %}
+                            <small class="text-muted">Sin detalle de productos</small>
+                        {% endif %}
+                    </div>
+                    <div class="col-md-2">
+                        {% if pedido.estado_pedido == 'PENDIENTE_REVISION' %}
+                            <span class="badge bg-warning text-dark">{{ pedido.get_estado_pedido_display }}</span>
+                        {% elif pedido.estado_pedido == 'ACEPTADO' %}
+                            <span class="badge bg-success">{{ pedido.get_estado_pedido_display }}</span>
+                        {% elif pedido.estado_pedido == 'RECHAZADO' %}
+                            <span class="badge bg-danger">{{ pedido.get_estado_pedido_display }}</span>
+                        {% elif pedido.estado_pedido == 'EN_PREPARACION' %}
+                            <span class="badge bg-info">{{ pedido.get_estado_pedido_display }}</span>
+                        {% elif pedido.estado_pedido == 'ENVIADO' %}
+                            <span class="badge bg-primary">{{ pedido.get_estado_pedido_display }}</span>
+                        {% elif pedido.estado_pedido == 'ENTREGADO' %}
+                            <span class="badge bg-dark">{{ pedido.get_estado_pedido_display }}</span>
+                        {% else %}
+                            <span class="badge bg-secondary">{{ pedido.get_estado_pedido_display }}</span>
+                        {% endif %}
+                    </div>
+                    <div class="col-md-3 text-end">
+                        {% if pedido.estado_pedido == 'PENDIENTE_REVISION' %}
+                            <form method="post" action="{% url 'pagos:vendedor_gestionar_estados' pedido.id %}" class="d-inline">
+                                {% csrf_token %}
+                                <input type="hidden" name="accion" value="aceptar">
+                                <button type="submit" class="btn btn-sm btn-success me-1">✅ Aceptar</button>
+                            </form>
+                            <form method="post" action="{% url 'pagos:vendedor_gestionar_estados' pedido.id %}" class="d-inline">
+                                {% csrf_token %}
+                                <input type="hidden" name="accion" value="rechazar">
+                                <button type="submit" class="btn btn-sm btn-danger">❌ Rechazar</button>
+                            </form>
+                        {% elif pedido.estado_pedido == 'ACEPTADO' %}
+                            <form method="post" action="{% url 'pagos:vendedor_gestionar_estados' pedido.id %}" class="d-inline">
+                                {% csrf_token %}
+                                <input type="hidden" name="accion" value="preparacion">
+                                <button type="submit" class="btn btn-sm btn-info">🔄 Preparar</button>
+                            </form>
+                        {% elif pedido.estado_pedido == 'EN_PREPARACION' %}
+                            <form method="post" action="{% url 'pagos:vendedor_gestionar_estados' pedido.id %}" class="d-inline">
+                                {% csrf_token %}
+                                <input type="hidden" name="accion" value="enviado">
+                                <button type="submit" class="btn btn-sm btn-primary">🚚 Enviar</button>
+                            </form>
+                        {% elif pedido.estado_pedido == 'ENVIADO' %}
+                            <form method="post" action="{% url 'pagos:vendedor_gestionar_estados' pedido.id %}" class="d-inline">
+                                {% csrf_token %}
+                                <input type="hidden" name="accion" value="entregado">
+                                <button type="submit" class="btn btn-sm btn-success">📦 Entregar</button>
+                            </form>
+                        {% else %}
+                            <span class="text-muted">Sin acciones</span>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% else %}
+    <div class="alert alert-info text-center">
+        <h4>📭 No hay pedidos</h4>
+        <p>No se encontraron pedidos con los filtros aplicados.</p>
+        <a href="{% url 'pagos:vendedor_dashboard' %}" class="btn btn-primary">Ver todos los pedidos</a>
+    </div>
+    {% endif %}
+
+    <!-- Ayuda -->
+    <div class="alert alert-light mt-4">
+        <h6><strong>💡 Instrucciones:</strong></h6>
+        <ul class="mb-0">
+            <li>Use los filtros para encontrar pedidos específicos</li>
+            <li>Los pedidos pendientes requieren aceptación o rechazo</li>
+            <li>Flujo normal: Aceptado → Preparación → Enviado → Entregado</li>
+        </ul>
+    </div>
+</div>
+{% endblock %}
